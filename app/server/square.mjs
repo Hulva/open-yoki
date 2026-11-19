@@ -38,7 +38,7 @@ export function squareArgs({ target, fps = 24, kbps = 3000, tap = '' }) {
     ...(tap ? ['-f', 'tee', [`[f=flv]${target}`, `[f=mpegts]${tap}`].join('|')] : ['-f', 'flv', target])];
 }
 
-export function createSquare({ file, bgmDir = '', songDir = '', room, still = '', clips = [], status, ffmpeg = 'ffmpeg', chromiumPath, log = console.log, tap = '', onSongEnded = null, page = {} }) {
+export function createSquare({ file, bgmDir = '', songDir = '', audioDir = '', room, still = '', clips = [], status, ffmpeg = 'ffmpeg', chromiumPath, log = console.log, tap = '', onSongEnded = null, page = {} }) {
   let run = null;
   const configured = () => !!readSquare(file);
 
@@ -57,7 +57,8 @@ export function createSquare({ file, bgmDir = '', songDir = '', room, still = ''
       const whole = songDir && /^\/song\/[\w-]+\.m4a$/.test(u.pathname) ? path.join(songDir, u.pathname.slice(6)) : null;
       const sfx = /^\/sfx\/[a-z]+\.mp3$/.test(u.pathname) ? path.join(APP, 'relay', 'sfx', u.pathname.slice(5)) : null;
       const clip = /^\/clip\/[a-z]+\.mp4$/.test(u.pathname) && clips.includes(u.pathname.slice(6, -4)) ? path.join(APP, 'relay', 'clips', u.pathname.slice(6)) : null;
-      const file = song || whole || sfx || clip || (u.pathname === '/' ? path.join(APP, 'relay', 'square.html') : u.pathname === '/vendor/volc-rtc.min.js' ? path.join(APP, 'public', 'vendor', 'volc-rtc.min.js') : FONTS[u.pathname] ? path.join(APP, 'relay', 'fonts', FONTS[u.pathname]) : u.pathname === '/still' && still ? still : null);
+      const voicef = audioDir && /^\/audio\/[a-z0-9_.-]+\.mp3$/.test(u.pathname) ? path.join(audioDir, u.pathname.slice(7)) : null;
+      const file = voicef || song || whole || sfx || clip || (u.pathname === '/' ? path.join(APP, 'relay', 'square.html') : u.pathname === '/vendor/volc-rtc.min.js' ? path.join(APP, 'public', 'vendor', 'volc-rtc.min.js') : FONTS[u.pathname] ? path.join(APP, 'relay', 'fonts', FONTS[u.pathname]) : u.pathname === '/still' && still ? still : null);
       if (!file || !fs.existsSync(file)) { res.statusCode = 404; return res.end(); }
       res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.m4a') ? 'audio/mp4' : file.endsWith('.mp3') ? 'audio/mpeg' : file.endsWith('.mp4') ? 'video/mp4' : file.endsWith('.ttf') ? 'font/ttf' : 'image/jpeg');
       fs.createReadStream(file).pipe(res);
@@ -138,10 +139,17 @@ export function createSquare({ file, bgmDir = '', songDir = '', room, still = ''
     return sent;
   }
 
-  // A song she put on: the feed page mixes its hook under her voice.
+  // A song she puts on: the feed page mixes its hook under her voice.
   function bgm(url) {
     if (!run || !/^\/bgm\/[a-z0-9_-]+\.m4a$/.test(url)) return;
     for (const s of run.socks) try { s.send(JSON.stringify({ bgm: url })); } catch {}
+  }
+
+  // Her voice file (mock/live2d avatar: no RTC stream carries it). The feed page fetches, decodes and
+  // mixes it into the push; the song bed ducks under it like it does under her RTC voice.
+  function voice(url) {
+    if (!run || !/^\/audio\/[a-z0-9_.-]+\.mp3$/.test(url)) return;
+    for (const s of run.socks) try { s.send(JSON.stringify({ voice: url })); } catch {}
   }
 
   // A whole song under her voice on the show (songs.mjs picks it; the songs are the operator's own files).
@@ -176,7 +184,7 @@ export function createSquare({ file, bgmDir = '', songDir = '', room, still = ''
     if (run) for (const s of run.socks) try { s.send(lastFocus); } catch {}
   }
 
-  return { start, stop, caption, bgm, song, sting, clip, board, focus, configured, get on() { return !!run; }, get live() { return !!run?.started; } };
+  return { start, stop, caption, bgm, voice, song, sting, clip, board, focus, configured, get on() { return !!run; }, get live() { return !!run?.started; } };
 }
 
 // Her thought behind a line, as brain writes it ("想：<mood>｜<why>｜…"): the mood and the first reason, for 心里话.

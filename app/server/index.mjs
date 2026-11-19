@@ -164,7 +164,7 @@ export async function start(env = process.env) {
   const still = path.join(ROOT, 'public', 'art', idol.id, 'looks', 's1.jpg');
   // mock/live2d avatar needs no Volcano RTC room; square.mjs only uses room.viewer() to hand the
   // compositor page a viewer ticket, so a null-ticket stub keeps the RTMP push path alive without RTC keys.
-  const square = createSquare({ file: path.join(dataDir, 'square.json'), bgmDir: path.join(dataDir, 'bgm'), songDir: showSongs ? (env.RADIO_SONG_DIR || path.join(dataDir, 'songs')) : '', onSongEnded: id => { if (showSongs?.current?.id === id) playNextSong(); }, room: room || { viewer: () => null }, still, clips: Object.keys(idol.bigMoves?.clips || {}).filter(k => fs.existsSync(path.join(ROOT, 'relay', 'clips', k + '.mp4'))), status, chromiumPath: chrome, tap: env.SQUARE_TAP || '',
+  const square = createSquare({ file: path.join(dataDir, 'square.json'), bgmDir: path.join(dataDir, 'bgm'), songDir: showSongs ? (env.RADIO_SONG_DIR || path.join(dataDir, 'songs')) : '', onSongEnded: id => { if (showSongs?.current?.id === id) playNextSong(); }, room: room || { viewer: () => null }, still, audioDir: path.join(dataDir, 'audio'), clips: Object.keys(idol.bigMoves?.clips || {}).filter(k => fs.existsSync(path.join(ROOT, 'relay', 'clips', k + '.mp4'))), status, chromiumPath: chrome, tap: env.SQUARE_TAP || '',
     page: { name: idol.name, tagline: idol.tagline || '', tz, tzLabel: idol.tzName || '' } });
   // Between shows: a voice-only radio live on Square with her voice answering chat, no Vidu (radio.mjs).
   // Her radio voice is the same Doubao voice a notch slower; the evening show keeps its own speed.
@@ -300,8 +300,12 @@ export async function start(env = process.env) {
   async function say(line, e, id) {
     const said = plainText(line.text);
     if (avatar.kind === 'mock') {
-      const r = await avatar.perform({ ...line, text: said, id, withVoice: live.viewers > 0 });
+      // B站观众不进本机 viewers 计数: 只要 RTMP 推流在跑(square.live)就合成语音, 否则B端永远听不到她说话
+      const r = await avatar.perform({ ...line, text: said, id, withVoice: live.viewers > 0 || !!square?.live });
       world.say({ text: line.text, face: line.face, action: line.action, tone: line.tone, bgm: line.bgm, seen: seenOf(e), audio: r.audio, durationMs: r.durationMs, kind: e.kind, replyTo: e.kind === 'chat' ? e.chatId : null });
+      // mock/live2d: push the caption and her voice file to the feed page ourselves (no RTC stream carries them)
+      square?.caption(said, e.kind === 'chat' ? e.name : '', '', line.inner, idol.actions[line.action]?.fx);
+      if (r?.audio) square?.voice(r.audio);
       await sleep(r.durationMs + (r.audio ? 1200 : 0));
       return;
     }

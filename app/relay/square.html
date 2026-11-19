@@ -27,7 +27,7 @@ async function main() {
   const still = document.getElementById('still'); still.src = cfg.still || '';
   ws = new WebSocket(`ws://${location.host}/media`);
   ws.binaryType = 'arraybuffer';
-  ws.onmessage = e => { const m = JSON.parse(e.data); if ('caption' in m) { caption = m.caption || ''; who = m.who || ''; head = m.head || (who ? '回复 ' + who : ''); capAt = Date.now(); if (think) { thoughts.push(think); thoughts = thoughts.slice(-3); } think = m.think ? { ...m.think, at: new Date(capAt + TZ * 3600e3).toISOString().slice(11, 16) } : null; } if (m.fx) startFx(m.fx); if (m.clip) playClip(m.clip); if (m.board) board = m.board; if (m.focus) focus = m.focus; if (m.bgm) playSong(m.bgm); if (m.song) playWhole(m.song); if (m.sting) playSting(m.sting); };
+  ws.onmessage = e => { const m = JSON.parse(e.data); if ('caption' in m) { caption = m.caption || ''; who = m.who || ''; head = m.head || (who ? '回复 ' + who : ''); capAt = Date.now(); if (think) { thoughts.push(think); thoughts = thoughts.slice(-3); } think = m.think ? { ...m.think, at: new Date(capAt + TZ * 3600e3).toISOString().slice(11, 16) } : null; }  if (m.fx) startFx(m.fx); if (m.clip) playClip(m.clip); if (m.board) board = m.board; if (m.focus) focus = m.focus; if (m.bgm) playSong(m.bgm); if (m.song) playWhole(m.song); if (m.sting) playSting(m.sting); if (m.voice) playVoice(m.voice); };
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
   // The 16:9 feed's own faces (server/square.mjs FONTS); without them it falls back to the system face.
   for (const [n, u] of [['lh-kai', '/font/kai.ttf'], ['lh-num', '/font/num.ttf']]) try { const f = new FontFace(n, `url(${u})`); await f.load(); document.fonts.add(f); } catch (e) { log('font', n, e.message || e); }
@@ -65,6 +65,19 @@ async function main() {
   // a song that came before the audio was ready (the server sends the current one as the page connects) plays now
   if (earlySong) { playWhole(earlySong); earlySong = null; }
   const duck = on => { if (on === dipped) return; dipped = on; const t = ac.currentTime; wholeGain.gain.cancelScheduledValues(t); wholeGain.gain.setValueAtTime(wholeGain.gain.value, t); wholeGain.gain.linearRampToValueAtTime(on ? DIP : BED, t + (on ? 0.25 : 0.9)); };
+  // Her voice (mock/live2d avatar): fetched, decoded, mixed straight into the push; the song bed ducks under it.
+  const voiceGain = ac.createGain(); voiceGain.gain.value = 1.0; voiceGain.connect(dest);
+  let voiceSrc = null;
+  const playVoice = async url => {
+    try {
+      const buf = await ac.decodeAudioData(await (await fetch(url)).arrayBuffer());
+      try { if (voiceSrc) { voiceSrc.onended = null; voiceSrc.stop(); } } catch {}
+      voiceSrc = ac.createBufferSource(); voiceSrc.buffer = buf; voiceSrc.connect(voiceGain);
+      duck(true);
+      voiceSrc.onended = () => { duck(false); };
+      voiceSrc.start(); log('voice', url);
+    } catch (e) { log('voice failed', url, e.message || e); }
+  };
   // A short sound over everything (relay/sfx/<name>.mp3: whoosh, cheer, gasp, boom). The files are optional and not
   // shipped; a missing one is remembered and stays silent.
   const stings = {};
