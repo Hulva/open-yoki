@@ -459,6 +459,7 @@ export async function start(env = process.env) {
   // What Binance is pushing, from her heart's home (xlearn keeps the official list, she keeps her own)
   const pushes = heartHome && !scratch ? createPushTalk({ dir: path.join(heartHome, '币安在推') }) : null;
   const brain = createBrain({ idol, world, ask, speak, direct: mouthDirect, memory, memes, news, learned, posts, today, pushes, market, pageOf,
+    timeoutMs: Number(env.MOUTH_TIMEOUT_MS || 12000), longTimeoutMs: Number(env.MOUTH_TIMEOUT_LONG_MS || 30000),
     act: async line => { avatar.move?.(line.action); if (showOpen && line.inner) herLines.push(`（心里：${line.inner}，没说话）`); await sleep(6000); }, viewers: viewersNow, alone: () => !!square?.live, heart: () => heart?.note(), onAir: () => schedule.onAir() && !openPending, status, idleMs: Number(env.IDLE_MS || idol.idleMs || 60000) });
 
   // Going on and off air: open the avatar session (Vidu bills from here) and say hello; say goodbye, then close it.

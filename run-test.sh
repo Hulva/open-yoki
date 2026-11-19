@@ -6,7 +6,11 @@ cd "$(dirname "$0")/app" || exit 1
 ZHIPU_KEY=$(python3 -c "import yaml;print(yaml.safe_load(open('/home/luva/.hermes/config.yaml'))['providers']['zhipu-coding']['api_key'])" 2>/dev/null)
 [ -z "$ZHIPU_KEY" ] && { echo "no zhipu key from hermes config"; exit 1; }
 
-export IDOL=example AVATAR=mock MODE=test
+export IDOL=${IDOL:-example} AVATAR=mock MODE=test
+export MARKET_OFF=${MARKET_OFF:-1} NEWS_OFF=${NEWS_OFF:-1}
+# 智谱 flash 首包慢, 放宽嘴的超时(默认12s/30s)
+export MOUTH_TIMEOUT_MS=${MOUTH_TIMEOUT_MS:-45000}
+export MOUTH_TIMEOUT_LONG_MS=${MOUTH_TIMEOUT_LONG_MS:-90000}
 # 嘴: DeepSeek 兼容直连 -> 智谱
 export HEART_KEY_DS="$ZHIPU_KEY"
 export MOUTH_DS=glm-5.3-flash
