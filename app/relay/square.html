@@ -339,18 +339,18 @@ async function main() {
   }, 1000 / cfg.fps);
 
   const V = window.VERTC.default || window.VERTC;
-  const engine = V.createEngine(cfg.app_id);
-  // After a short drop of her stream the page could keep dropping one frame in five (24 -> 15/s on Square) while RTC
-  // still delivered 24. The old player is cleared before the new one is attached, and if the picture still drops
-  // frames for 40 s while RTC is fine, the player is attached afresh.
-  const attach = (userId, why) => {
+  // No Volcano RTC keys (mock/live2d avatar): the page draws the still/clip and plays the voice
+  // files the server pushes over WS; the whole RTC join block below is skipped.
+  const engine = cfg.app_id ? V.createEngine(cfg.app_id) : null;
+  const attach = cfg.app_id ? (userId, why) => {
     const box = document.getElementById('v');
     for (const el of box.querySelectorAll('video')) { try { el.pause(); el.srcObject = null; } catch {} }
     box.replaceChildren();
     watched = null; lastQ = null; bad = 0;
     engine.setRemoteVideoPlayer(0, { userId, renderDom: box, renderMode: 1 });
     log('player attached', why);
-  };
+  } : () => {};
+  if (engine) {
   engine.on(V.events.onUserPublishStream, ({ userId, mediaType }) => {
     if (userId !== cfg.publisher) return;
     log('her stream', mediaType);
@@ -362,6 +362,7 @@ async function main() {
   await engine.setUserVisibility(false);
   await engine.joinRoom(cfg.token, cfg.room_id, { userId: cfg.user_id }, { isAutoPublish: false, isAutoSubscribeAudio: true, isAutoSubscribeVideo: true });
   log('in room', cfg.room_id);
+  }
 
   const stream = new MediaStream([c.captureStream(cfg.fps).getVideoTracks()[0], dest.stream.getAudioTracks()[0]]);
   const type = ['video/webm;codecs=h264,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t));

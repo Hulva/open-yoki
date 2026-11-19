@@ -36,6 +36,7 @@ function mockAvatar({ idol, voice, status, lookDir }) {
   status?.('avatar', true);
   return {
     kind: 'mock',
+    onAir: true,   // the square/RTMP push gate reads avatar.onAir; a local-test mock is always on
     async open() {}, async close() {},
     async offStage(on) { priv = on; return false; },
     view: () => ({ kind: 'image', src: lookSrc(idol, stage, lookDir, priv ? 'off' : undefined), stage }),
