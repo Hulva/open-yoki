@@ -29,6 +29,7 @@ import { createRelay } from './relay.mjs';
 import { createVolcRoom } from './rtc.mjs';
 import { createSchedule, clockIn, showCue } from './schedule.mjs';
 import { falVoice, doubaoVoice, plainText, saidPart, VOICE, doubaoResource } from './voice.mjs';
+import { edgeVoice } from './edgevoice.mjs';
 import { createAuth, AuthError, isGuest } from './auth.mjs';
 import { liveRoom, watchGate } from './live.mjs';
 import { createMemory } from './memory.mjs';
@@ -116,22 +117,28 @@ export async function start(env = process.env) {
 
   const orKey = env.OPENROUTER_API_KEY || null;
   const falKey = env.FAL_KEY || null;
-  routes.model.on = !!orKey && env.MODEL_OFF !== '1';
+  // DeepSeek-compatible direct mouth (MOUTH_DS_BASE) also counts as a live model route.
+  routes.model.on = (!!orKey || !!env.HEART_KEY_DS) && env.MODEL_OFF !== '1';
   // Voice: her Doubao voice when its key and voice id are there, else fal MiniMax as the fallback.
   const volcKey = env.VOLC_API_KEY || null;
   const dv = idol.avatar.doubao ? { ...idol.avatar.doubao, voiceId: env.DOUBAO_VOICE_ID || idol.avatar.doubao.voiceId } : null;
   const useDoubao = !!(volcKey && dv?.voiceId && env.VOICE_PROVIDER !== 'fal');
-  routes.voice.on = (useDoubao || !!falKey) && env.VOICE_OFF !== '1';
+  const useEdge = env.VOICE_PROVIDER === 'edge' && !useDoubao && !falKey;
+  routes.voice.on = (useDoubao || !!falKey || useEdge) && env.VOICE_OFF !== '1';
   const voiceDir = path.join(dataDir, 'audio'), dailyChars = Number(env.TTS_DAILY_CHARS || 60000);
   const stageVoice = !routes.voice.on ? null
     : useDoubao ? doubaoVoice({ key: volcKey, dir: voiceDir, dailyChars, voiceId: dv.voiceId, context: dv.context, speed: dv.speed || 0, tones: dv.tones || {}, status })
-    : falVoice({ key: falKey, dir: voiceDir, dailyChars, voiceId: idol.fallbackVoice.voiceId, speed: idol.fallbackVoice.speed, status });
+    : falKey ? falVoice({ key: falKey, dir: voiceDir, dailyChars, voiceId: idol.fallbackVoice.voiceId, speed: idol.fallbackVoice.speed, status })
+    : edgeVoice({ dir: voiceDir, dailyChars, voiceId: env.EDGE_VOICE || 'zh-CN-XiaoxiaoNeural', status, bin: env.EDGE_TTS_BIN });
   const voice = stageVoice;
   // With a DeepSeek key the mouth talks to DeepSeek directly (thinking off, MOUTH_DS model) and reads a page of facts
   // (brain.mjs factFor, idol.mouth.direct); OpenRouter's main model backs it up. MOUTH_DIRECT=0 uses OpenRouter only.
   const mouthDirect = !!env.HEART_KEY_DS && env.MOUTH_DIRECT !== '0' && !!idol.mouth?.direct;
+  // Direct DeepSeek-compatible mouth (MOUTH_DS_BASE repoints it at any OpenAI-compatible chat API);
+  // the OpenRouter backup is only wired when a key exists.
+  const dsMouth = deepseek({ key: env.HEART_KEY_DS, model: env.MOUTH_DS || 'deepseek-flash', base: env.MOUTH_DS_BASE });
   const ask = !routes.model.on ? async () => { throw new Error('model off'); }
-    : mouthDirect ? withBackup(deepseek({ key: env.HEART_KEY_DS, model: env.MOUTH_DS || 'deepseek-flash' }), openrouter({ key: orKey, model: idol.models?.main || MODEL }), { mainMs: idol.models?.mainMs || 3500 })
+    : mouthDirect ? (orKey ? withBackup(dsMouth, openrouter({ key: orKey, model: idol.models?.main || MODEL }), { mainMs: idol.models?.mainMs || 3500 }) : dsMouth)
     : idol.models ? withBackup(openrouter({ key: orKey, model: idol.models.main }), openrouter({ key: orKey, model: idol.models.backup }), { mainMs: idol.models.mainMs })
     : openrouter({ key: orKey });
 
@@ -200,7 +207,7 @@ export async function start(env = process.env) {
     if (!env.HEART_KEY_DS) return claude.length > 1 ? fallbackRunner(claude, m => console.log(m)) : claude[0][1];
     // Straight to DeepSeek's own API by default (heartds.mjs): through the Claude Code CLI she sounded like a coding
     // assistant. HEART_DS_DIRECT=0 goes back to the CLI on DeepSeek's Anthropic endpoint.
-    const ds = (m, timeoutMs) => dsDirect ? dsRunner({ extra: webTools, key: env.HEART_KEY_DS, model: m, sessionDir: path.join(heartState, 'ds-sessions'), timeoutMs }) : claudeRunner({ key: env.HEART_KEY_DS, keyVar: 'ANTHROPIC_AUTH_TOKEN', baseUrl: env.HEART_DS_URL || 'https://api.deepseek.com/anthropic', model: m, configDir, timeoutMs });
+    const ds = (m, timeoutMs) => dsDirect ? dsRunner({ extra: webTools, key: env.HEART_KEY_DS, model: m, base: env.HEART_DS_BASE, sessionDir: path.join(heartState, 'ds-sessions'), timeoutMs }) : claudeRunner({ key: env.HEART_KEY_DS, keyVar: 'ANTHROPIC_AUTH_TOKEN', baseUrl: env.HEART_DS_URL || 'https://api.deepseek.com/anthropic', model: m, configDir, timeoutMs });
     const live = ['ds-flash', ds(env.HEART_DS_LIVE || 'deepseek-flash', 150e3), 'deepseek'], day = ['ds-pro', ds(env.HEART_DS_DAY || 'deepseek-v4-pro', 300e3), 'deepseek'];
     return fallbackRunner(() => [showOpen ? live : day, ...claude], m => console.log(m));
   }
