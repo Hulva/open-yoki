@@ -30,6 +30,7 @@ import { createVolcRoom } from './rtc.mjs';
 import { createSchedule, clockIn, showCue } from './schedule.mjs';
 import { falVoice, doubaoVoice, plainText, saidPart, VOICE, doubaoResource } from './voice.mjs';
 import { edgeVoice } from './edgevoice.mjs';
+import { createGuard, guardLog } from './guard.mjs';
 import { createAuth, AuthError, isGuest } from './auth.mjs';
 import { liveRoom, watchGate } from './live.mjs';
 import { createMemory } from './memory.mjs';
@@ -108,6 +109,8 @@ export async function start(env = process.env) {
   // <data>/show/. The clip tools cut the replay with it. Never read back by the server except after a restart mid-show.
   const showDir = path.join(dataDir, 'show');
   const showLog = o => { try { fs.mkdirSync(showDir, { recursive: true }); fs.appendFileSync(path.join(showDir, new Date().toISOString().slice(0, 10) + '.jsonl'), JSON.stringify({ at: Date.now(), ...o }) + '\n'); } catch {} };
+  // 敏感词防火墙（合规硬门槛）：词表 <DATA_DIR>/sensitive-words.txt 可热追加（mtime 变更自动重载）。
+  const guard = createGuard({ file: path.join(dataDir, 'sensitive-words.txt') });
   const world = createWorld({ idol, file: path.join(dataDir, 'world.json') });
   const routes = { model: { on: false }, voice: { on: false }, avatar: { on: true }, chat: { on: true } };
   // Her long-term memory (memory.mjs): regulars, last night, her own calls. Saved with the room.
@@ -272,6 +275,14 @@ export async function start(env = process.env) {
   // action effect; vidu: the line streams into the RTC picture), then a short breath before the next one.
   async function speak(line, e) {
     const id = randomBytes(6).toString('hex');
+    // 她开口前的最后一道闸：台词和"心里"那行都遮蔽，违规词永远不出街；命中记 guard.jsonl 供复盘。
+    const hitT = guard.scan(line.text), hitI = line.inner ? guard.scan(line.inner) : { hit: false, words: [] };
+    if (hitT.hit || hitI.hit) {
+      const words = [...hitT.words, ...hitI.words];
+      guardLog(dataDir, { kind: 'say', words, text: String(line.text || '').slice(0, 90) });
+      showLog({ k: 'guard', what: 'masked', words: words.join(',') });
+      line = { ...line, text: guard.mask(line.text, true), inner: line.inner ? guard.mask(line.inner, true) : line.inner };
+    }
     if (e.kind === 'stage') await changeLook(e.stage);
     const r = await say(line, e, id);
     if (r?.skipped) return;
@@ -649,6 +660,7 @@ export async function start(env = process.env) {
       // from outside (the proxy sets X-Real-IP) only the on/off parts; voice id, credits and spend stay on the box
       if (p === '/api/health') return json(res, 200, ((h) => req.headers['x-real-ip'] ? (({ voice, viduCredits, modelSpend, model, ...pub }) => pub)(h) : h)({
         mode, viewers: live.viewers, stage: STAGES[world.w.stage]?.name, lastLineAt: world.w.line?.at || null,
+        guard: guard.stats(),
         queue: brain.queue.length, routes, model: idol.models?.main || MODEL, avatar: avatar.kind, viduCredits: credits.n, viduCreditsLow: credits.n != null && credits.n < Number(env.VIDU_WARN_CREDITS || 1800),
         square: square ? { configured: square.configured(), live: square.live, online: squareRoom.online, pv: squareRoom.pv, peak: squareRoom.peak } : null,
         radio: radio ? { wanted: radio.wanted(), on: radio.on, live: radio.live, answered: radio.answered, queue: radio.queue } : null,
@@ -671,7 +683,7 @@ export async function start(env = process.env) {
         if (hits.length >= GUEST_PER_IP_HOUR) return json(res, 429, { error: '这台设备进来的游客太多了，过一会儿再来' });
         hits.push(now); guestIps.set(ip, hits);
         if (guestIps.size > 5000) for (const [k, v] of guestIps) if (now - v.at(-1) > 3600e3) guestIps.delete(k);
-        const nick = nickOf((await readBody(req)).name);
+        const nick = nickOf(guard.mask((await readBody(req)).name));
         if (!nick) return json(res, 400, { error: '换个昵称：1 到 12 个字，不能带链接或“官方”“客服”' });
         const r = auth.guest();
         guestLeft.set(r.address, { ...idol.guest });
@@ -770,7 +782,8 @@ export async function start(env = process.env) {
       }
       if (req.method === 'POST' && p === '/api/square/comments') {
         if (!fromReader()) return json(res, 403, { error: 'bad key' });
-        const items = cleanComments((await readBody(req, 16000)).items, { seen: squareSeen, nickOf });
+        const items = cleanComments((await readBody(req, 16000)).items, { seen: squareSeen, nickOf })
+          .map(it => ({ ...it, name: guard.mask(it.name), text: guard.mask(it.text) }));
         for (const { name, text } of items) {
           const addr = 'guest-sq-' + createHash('sha256').update(name).digest('hex').slice(0, 12);
           memory.seen(name);
@@ -795,7 +808,9 @@ export async function start(env = process.env) {
       // a slower poll as the backup. A walk-in is greeted by name (brain folds a crowd).
       if (req.method === 'POST' && p === '/api/square/room') {
         if (!fromReader()) return json(res, 403, { error: 'bad key' });
-        const { joins, thanks, ended, warned } = squareRoom.take(await readBody(req, 16000), nickOf);
+        const { joins: joins0, thanks: thanks0, ended, warned } = squareRoom.take(await readBody(req, 16000), nickOf);
+        const joins = joins0.map(n => guard.mask(n));
+        const thanks = thanks0.map(x => ({ ...x, name: x.name ? guard.mask(x.name) : x.name, what: x.what ? guard.mask(x.what) : x.what }));
         for (const name of joins) showLog({ k: 'join', who: name, online: viewersNow() });
         for (const x of thanks) showLog({ k: 'thanks', act: x.act, who: x.name || null, what: x.what || null });
         for (const name of joins) { memory.seen(name); brain.add({ kind: 'join', name, viewers: viewersNow(), from: 'square' }); heart?.feed(`【直播间 ${heart.clock()}】${name} 进来了，现在 ${viewersNow()} 个人在看`); }
@@ -812,7 +827,7 @@ export async function start(env = process.env) {
         const body = await readBody(req);
         const addr = auth.who(body.token);
         if (!addr || !isGuest(addr)) return json(res, 401, { error: '先起个昵称进来' });
-        const text = String(body.text || '').trim();
+        const text = guard.mask(String(body.text || '').trim());
         if (!text) return json(res, 400, { error: '说点什么再发' });
         if (text.length > 80) return json(res, 400, { error: '一条最多 80 个字' });
         const left = leftOf(addr);

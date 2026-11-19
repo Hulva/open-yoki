@@ -94,6 +94,8 @@ async function main() {
   // Wrap a caption into lines that fit the band; keep the last n.
   const wrap = (t, max, n = 3) => { const out = []; let line = ''; for (const ch of t) { if (g.measureText(line + ch).width > max) { out.push(line); line = ch; } else line += ch; } if (line) out.push(line); return out.slice(-n); };
   const font = 'px "Noto Sans CJK SC", "WenQuanYi Zen Hei", "PingFang SC", sans-serif';
+  // AI 生成标识（《人工智能生成合成内容标识办法》）：画面常显，属于合规硬门槛，别删。
+  const AI_TAG = 'AI 生成内容';
   // Caption box: what she is saying now, in the room's yellow-on-night style, its bottom at `bottom`; fades 8 s after the line.
   function capBox(x, w, bottom, size, n) {
     if (!caption || Date.now() - capAt >= 8000) return;
@@ -298,6 +300,14 @@ async function main() {
     drawClip();
     drawFx();
     wireAudio();
+    // AI 生成标识角标：半透明底 + 白字，横竖屏都放左上角，避开币安/广场手机端底部裁切区。
+    {
+      const size = Math.round(W / 46);
+      g.font = '500 ' + size + font;
+      const tw = g.measureText(AI_TAG).width, bx = W * 0.035, by = H * 0.022, pad = size * 0.5;
+      g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(bx, by, tw + pad * 2, size * 1.8);
+      g.fillStyle = 'rgba(255,255,255,0.92)'; g.textAlign = 'left'; g.fillText(AI_TAG, bx + pad, by + size * 1.25);
+    }
     // Square's phone app crops a tall feed to the middle square, so in portrait the caption sits at
     // the bottom of that square instead of the bottom of the frame; desktop still sees all of it.
     if (W > H) wide(pw);
