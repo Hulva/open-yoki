@@ -164,7 +164,7 @@ export async function start(env = process.env) {
   const still = path.join(ROOT, 'public', 'art', idol.id, 'looks', 's1.jpg');
   // mock/live2d avatar needs no Volcano RTC room; square.mjs only uses room.viewer() to hand the
   // compositor page a viewer ticket, so a null-ticket stub keeps the RTMP push path alive without RTC keys.
-  const square = createSquare({ file: path.join(dataDir, 'square.json'), bgmDir: path.join(dataDir, 'bgm'), songDir: showSongs ? (env.RADIO_SONG_DIR || path.join(dataDir, 'songs')) : '', onSongEnded: id => { if (showSongs?.current?.id === id) playNextSong(); }, room: room || { viewer: () => null }, still, audioDir: path.join(dataDir, 'audio'), clips: Object.keys(idol.bigMoves?.clips || {}).filter(k => fs.existsSync(path.join(ROOT, 'relay', 'clips', k + '.mp4'))), status, chromiumPath: chrome, tap: env.SQUARE_TAP || '',
+  const square = createSquare({ file: path.join(dataDir, 'square.json'), bgmDir: path.join(dataDir, 'bgm'), songDir: showSongs ? (env.RADIO_SONG_DIR || path.join(dataDir, 'songs')) : '', onSongEnded: id => { if (showSongs?.current?.id === id) playNextSong(); }, room: room || { viewer: () => null }, still, audioDir: path.join(dataDir, 'audio'), avatar: env.AVATAR === 'live2d' ? 'live2d' : '', modelPath: env.LIVE2D_MODEL || '', clips: Object.keys(idol.bigMoves?.clips || {}).filter(k => fs.existsSync(path.join(ROOT, 'relay', 'clips', k + '.mp4'))), status, chromiumPath: chrome, tap: env.SQUARE_TAP || '',
     page: { name: idol.name, tagline: idol.tagline || '', tz, tzLabel: idol.tzName || '' } });
   // Between shows: a voice-only radio live on Square with her voice answering chat, no Vidu (radio.mjs).
   // Her radio voice is the same Doubao voice a notch slower; the evening show keeps its own speed.

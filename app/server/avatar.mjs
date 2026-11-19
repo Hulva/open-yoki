@@ -28,7 +28,10 @@ export const lookAvatar = (idol, s, env = {}, key = idol.stages[s]?.key) => idol
 // quiet(): ms since anyone last said anything in the room, so an idle stretch can turn into her drifting off.
 export function createAvatar({ idol, kind = 'mock', voice = null, status, env = {}, room = null, lookDir = null, quiet = () => 0 }) {
   if (kind === 'vidu') return viduAvatar({ idol, voice, status, env, room, lookDir, quiet });
-  return mockAvatar({ idol, voice, status, lookDir });
+  // live2d: the server side is the mock contract (perform → voice file); the model renders in the
+  // compositor page (square.html, pixi-live2d-display), not here.
+  const base = mockAvatar({ idol, voice, status, lookDir });
+  return kind === 'live2d' ? { ...base, kind: 'live2d' } : base;
 }
 
 function mockAvatar({ idol, voice, status, lookDir }) {

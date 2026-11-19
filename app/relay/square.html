@@ -13,6 +13,7 @@
 <script src="/vendor/volc-rtc.min.js"></script>
 <script>
 let ws, rec, caption = '', who = '', head = '', capAt = 0, board = [], think = null, thoughts = [], focus = null, fx = null, playSong = () => {}, playClip = () => {}, playWhole = s => { earlySong = s; }, earlySong = null, playSting = () => {}, nowSong = null;
+let l2dCanvas = null;   // live2d avatar: the PIXI view canvas, once the model has loaded
 const log = (...a) => { try { ws?.readyState === 1 && ws.send(JSON.stringify({ log: a.join(' ') })); } catch {} };
 
 async function main() {
@@ -77,6 +78,35 @@ async function main() {
       voiceSrc.onended = () => { duck(false); };
       voiceSrc.start(); log('voice', url);
     } catch (e) { log('voice failed', url, e.message || e); }
+  };
+
+  // Live2D avatar: the model renders on its own PIXI canvas (idle motions built in) and draw() composites
+  // it instead of the still. Lipsync v1 = voice volume → ParamMouthOpenY, written each frame after the
+  // model's own update so our value wins.
+  const loadScript = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('load ' + src)); document.head.appendChild(s); });
+  const initLive2D = async () => {
+    await loadScript('/vendor/pixi.min.js');
+    await loadScript('/vendor/live2dcubismcore.min.js');
+    await loadScript('/vendor/live2d-display.min.js');
+    const app = new PIXI.Application({ width: W, height: H, backgroundAlpha: 0, antialias: true });
+    const model = await PIXI.live2d.Live2DModel.from(cfg.live2d);
+    const k = Math.min(W / model.width, H * 0.98 / model.height);
+    model.scale.set(k);
+    model.x = (W - model.width) / 2;
+    model.y = H * 0.01;
+    app.stage.addChild(model);
+    const analyser = ac.createAnalyser(); analyser.fftSize = 512;
+    voiceGain.connect(analyser);
+    const abuf = new Uint8Array(analyser.fftSize);
+    app.ticker.add(() => {
+      try {
+        analyser.getByteTimeDomainData(abuf);
+        let s = 0; for (let i = 0; i < abuf.length; i++) { const d = (abuf[i] - 128) / 128; s += d * d; }
+        model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', Math.min(1, Math.sqrt(s / abuf.length) * 7));
+      } catch {}
+    }, -100);   // run after the model's own update
+    l2dCanvas = app.view;
+    log('live2d ready', cfg.live2d, Math.round(model.width) + 'x' + Math.round(model.height));
   };
   // A short sound over everything (relay/sfx/<name>.mp3: whoosh, cheer, gasp, boom). The files are optional and not
   // shipped; a missing one is remembered and stays silent.
@@ -300,11 +330,11 @@ async function main() {
   }
   function draw() {
     const v = document.querySelector('#v video');
-    const src = v && v.readyState >= 2 && v.videoWidth ? v : still.complete && still.naturalWidth ? still : null;
+    const src = v && v.readyState >= 2 && v.videoWidth ? v : (l2dCanvas || (still.complete && still.naturalWidth ? still : null));
     g.fillStyle = W > H ? '#000' : '#090b10'; g.fillRect(0, 0, W, H);
     const pw = H * 520 / 720;
     if (src) {
-      const sw = src.videoWidth || src.naturalWidth, sh = src.videoHeight || src.naturalHeight;
+      const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
       const k = Math.max(W / sw, H / sh), dw = sw * k, dh = sh * k;
       // A landscape feed: her picture at its full width, top aligned (the bottom of a portrait is mostly clothes).
       if (W > H) { pic = { x: (W - pw) / 2, y: 0, w: pw, h: sh * pw / sw }; g.drawImage(src, pic.x, pic.y, pic.w, pic.h); }
@@ -350,6 +380,9 @@ async function main() {
     if (v && v !== watched && v.requestVideoFrameCallback) { watched = v; onFrame(v); }
     if (performance.now() - lastDraw > (clipOn ? 40 : 150)) paint();
   }, 1000 / cfg.fps);
+
+  // Live2D avatar loads in the background; until it is ready draw() keeps using the still picture.
+  if (cfg.avatar === 'live2d' && cfg.live2d) initLive2D().catch(e => log('live2d failed', String(e.message || e).slice(0, 120)));
 
   const V = window.VERTC.default || window.VERTC;
   // No Volcano RTC keys (mock/live2d avatar): the page draws the still/clip and plays the voice

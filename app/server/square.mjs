@@ -38,7 +38,7 @@ export function squareArgs({ target, fps = 24, kbps = 3000, tap = '' }) {
     ...(tap ? ['-f', 'tee', [`[f=flv]${target}`, `[f=mpegts]${tap}`].join('|')] : ['-f', 'flv', target])];
 }
 
-export function createSquare({ file, bgmDir = '', songDir = '', audioDir = '', room, still = '', clips = [], status, ffmpeg = 'ffmpeg', chromiumPath, log = console.log, tap = '', onSongEnded = null, page = {} }) {
+export function createSquare({ file, bgmDir = '', songDir = '', audioDir = '', room, still = '', clips = [], avatar = '', modelPath = '', status, ffmpeg = 'ffmpeg', chromiumPath, log = console.log, tap = '', onSongEnded = null, page = {} }) {
   let run = null;
   const configured = () => !!readSquare(file);
 
@@ -51,14 +51,18 @@ export function createSquare({ file, bgmDir = '', songDir = '', audioDir = '', r
       const u = new URL(req.url, 'http://x');
       if (u.pathname === '/config') {
         res.setHeader('Content-Type', 'application/json');
-        return res.end(JSON.stringify({ ...page, ...room.viewer(), width: cfg.width, height: cfg.height, fps: cfg.fps, kbps: cfg.kbps, still: '/still', clips }));
+        return res.end(JSON.stringify({ ...page, ...room.viewer(), width: cfg.width, height: cfg.height, fps: cfg.fps, kbps: cfg.kbps, still: '/still', clips, ...(avatar === 'live2d' && modelPath ? { avatar: 'live2d', live2d: modelPath } : {}) }));
       }
       const song = bgmDir && /^\/bgm\/[a-z0-9_-]+\.m4a$/.test(u.pathname) ? path.join(bgmDir, u.pathname.slice(5)) : null;
       const whole = songDir && /^\/song\/[\w-]+\.m4a$/.test(u.pathname) ? path.join(songDir, u.pathname.slice(6)) : null;
       const sfx = /^\/sfx\/[a-z]+\.mp3$/.test(u.pathname) ? path.join(APP, 'relay', 'sfx', u.pathname.slice(5)) : null;
       const clip = /^\/clip\/[a-z]+\.mp4$/.test(u.pathname) && clips.includes(u.pathname.slice(6, -4)) ? path.join(APP, 'relay', 'clips', u.pathname.slice(6)) : null;
       const voicef = audioDir && /^\/audio\/[a-z0-9_.-]+\.mp3$/.test(u.pathname) ? path.join(audioDir, u.pathname.slice(7)) : null;
-      const file = voicef || song || whole || sfx || clip || (u.pathname === '/' ? path.join(APP, 'relay', 'square.html') : u.pathname === '/vendor/volc-rtc.min.js' ? path.join(APP, 'public', 'vendor', 'volc-rtc.min.js') : FONTS[u.pathname] ? path.join(APP, 'relay', 'fonts', FONTS[u.pathname]) : u.pathname === '/still' && still ? still : null);
+      // Live2D: model files (relay/live2d/…) and the rendering libs (relay/vendor/…), both local.
+      // volc-rtc.min.js keeps its original path (public/vendor) via the fallback chain below.
+      const l2df = /^\/live2d\/[\w./-]+$/.test(u.pathname) ? path.join(APP, 'relay', 'live2d', u.pathname.slice(8)) : null;
+      const vendor = /^\/vendor\/(pixi|live2dcubismcore|live2d-display)[.]min[.]js$/.test(u.pathname) ? path.join(APP, 'relay', 'vendor', u.pathname.slice(8)) : null;
+      const file = voicef || l2df || vendor || song || whole || sfx || clip || (u.pathname === '/' ? path.join(APP, 'relay', 'square.html') : u.pathname === '/vendor/volc-rtc.min.js' ? path.join(APP, 'public', 'vendor', 'volc-rtc.min.js') : FONTS[u.pathname] ? path.join(APP, 'relay', 'fonts', FONTS[u.pathname]) : u.pathname === '/still' && still ? still : null);
       if (!file || !fs.existsSync(file)) { res.statusCode = 404; return res.end(); }
       res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.m4a') ? 'audio/mp4' : file.endsWith('.mp3') ? 'audio/mpeg' : file.endsWith('.mp4') ? 'video/mp4' : file.endsWith('.ttf') ? 'font/ttf' : 'image/jpeg');
       fs.createReadStream(file).pipe(res);
